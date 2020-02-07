@@ -1,0 +1,243 @@
+---
+title: "HW1"
+author: "John Lukas Facile"
+date: "2/7/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Problem 1: Austin-Bergstrom International Airport
+
+Air travel, while being a marvel of human engineering and organization, can really be quite a hassle. Naturally, one would want to make the whole experience as pleasant as possible, which, for the average non-first class flying citizen, would probably be the minimization of the amount of time spent in transit from one location to another. As Austinites, our gateway to the world happens to be the Austin-Bergstrom International airport. Thus, I set out to discover the optimal strategy one could use to make the best out of their aeronautical expedition given one isn't a wealthy globetrotter.  
+
+## Issue no.1: Flight and Security Delays
+
+There is little one could do when faced with a delay while sitting in the appropriate terminal. By the time you find out your flight has been delayed, you're forced to wait at the terminal until the winds of fate decree your passage is due.   
+
+``` {r message=FALSE,warning=FALSE, echo=FALSE}
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(FNN)
+library(foreach)
+library(mosaic)
+
+
+
+ABIA = read.csv("ABIA.csv")
+#- What is the best time of day to fly to minimize delays?  
+arrivaldel<- ABIA %>%
+  group_by(FlightNum, DepDelay, DepTime, ArrTime, ArrDelay, DayOfWeek, SecurityDelay)
+
+ggplot(arrivaldel, aes(x=DepTime, y=DepDelay) )+ 
+  geom_point(mapping = aes(x= DepTime, y=DepDelay, color = DayOfWeek))+
+ 
+  labs(x= "Time", y="Delay, in minutes", title = "Figure 1: Departure Time and Delay")
+
+ggplot(arrivaldel, aes(x=DepTime, y=DepDelay) )+
+geom_point(mapping = aes(x=ArrTime, y=ArrDelay, color = DayOfWeek))+
+  labs(x= "Time", y="Delay, in minutes", title = "Figure 2: Arrival Time and Delay") 
+ggplot(arrivaldel, aes(x=DepTime, y=SecurityDelay) )+ 
+  geom_point(mapping = aes(x= DepTime, y=SecurityDelay, color = DayOfWeek))+
+  
+  labs(x= "Time", y="Delay", title = "Figure 3: Security Delay Given Time of Day")
+ 
+
+```
+
+Figure 1 and 2 depict the delay given the time for all the available flights in the data. Both figures exhibit a similar trend. The gap can be easily explained by how departures cease after a certain time of the night and arrivals tend to occur after departures. The most notable takeaway is how departure and arrival delay appears to become more severe and volatile later in the day. From first inspection, the most efficient time to book a flight in order to minimize the potential delay would be as early in the morning as you can, or around 6 am. Another piece of information we can observe from these figures is the day of the week appears to have fewer delays at what time (Monday-Sunday represented as 1-7, respectively). Upon inspection, Tuesdays appear to be concentrated towards the bottom of each section, indicating that tuesdays, or at least earlier days of the week, may be the day that experiences the least amount of delays for any given time.  
+Additionally, Security delay plays a role in increasing the amount of time spent at an airport. Fortunately, the time frame with the least amount of security delays appear to coincide with the time with the lowest departure delays. Arriving at ABIA right when it opens to catch your early morning flight seems to be the best strategy in order to minimize at-airport delay. 
+
+## Issue no 2: What time of year should I fly?
+
+Almost as important as avoiding delays is avoiding crowds. Nothing slows down a line at security like too many people. With regards to crowds, the primary concern would be delays from chokepoints like check-in and security. 
+
+
+```{r echo=FALSE, warning = FALSE, message=FALSE}
+
+
+Season<- ABIA %>%
+  group_by(Month,FlightNum, DepDelay, DepTime, ArrTime, ArrDelay) 
+  
+
+ggplot(Season, aes(x=Month, y=DepDelay))+
+  geom_point(Season, mapping = aes(x=Month, y=DepDelay))+
+  labs(x="Month from Jan-Dec Respectively", y="Delay", title = "Figure 4: Departure Delay by Month")
+ggplot(Season, aes(x=Month, y=SecurityDelay))+
+  geom_point(Season, mapping = aes(x=Month, y=SecurityDelay, color = "blue"))+
+  labs(x="Month from Jan-Dec Respectively", y="Delay", title = "Figure 5: Security Delay by Month")
+
+```
+
+
+Figure 4 shows the departure delays given month. While there aren't any months with significant total variation in delay, September seems to have the least amount of variation in delay as well as the lowest maximum delay. Figure 5 depicts the security delays for a given month. While September doesn't have the smallest variance or maximum point, it does seem to be far from the most scattered month. According to these figures, September would appear to be the best month in order to take a trip out of ABIA.  
+
+
+## Conclusion: The Optimal Strategy
+
+Let's say that you primarily care about spending the least amount of time possible at ABIA. Your best option would be to arrive at the airport right before the sun rises on a Tuesday and take the earliest possible flight they offer. This would have to occur in September in order to further minimize both flight related delays and security delays. This result most likely suprises no one. These graphs are depicting trends in travel demand. So any intuition picked up from this comes from the fact that the majority choose not to fly at these times because they are inconvenient and don't coincide with regular events that influence travel demand out of ABIA like holidays or popular vacation seasons. Summmers here in Austin are unpleasant, so an increase of departure and security delays due to increased travel demand is to be expected.There are several reasons why Semptember appears to be the best month to travel out of ABIA. Temperatures in Austin begin to decrease to bearable levels, and fall terms at schools begin. 
+
+
+
+# Problem 2: K-Nearest Neighbors
+
+##1: Splitting the data into training and testing sets
+
+```{r echo= FALSE, message=FALSE, warning=FALSE}
+
+sclass <- read.csv("sclass.csv")
+
+#1) Split the data into a training and a testing set. 
+
+
+
+# trim level 350
+
+sclass350 = subset(sclass, trim == '350')
+dim(sclass350)
+
+
+N = nrow(sclass350)
+N_train = floor(0.8*N)
+train_ind = sample.int(N, N_train, replace=FALSE)
+
+# randomly sample a set of data points to include in the training set
+train_ind = sample.int(N, N_train, replace=FALSE)
+
+# Define the training and testing set
+D_train = sclass350[train_ind,]
+D_test = sclass350[-train_ind,]
+
+sclass350_train = sclass350[train_ind,]
+sclass350_test = sclass350[-train_ind,]
+
+y_train_350 = sclass350_train$price
+X_train_350 = data.frame(mileage = sclass350_train$mileage)
+y_test_350 = sclass350_test$price
+X_test_350 = data.frame(mileage = sclass350_test$mileage)
+
+
+#trim level 65
+
+sclass65 = subset(sclass, trim == '65 AMG')
+dim(sclass350)
+
+# create a train/test split
+N = nrow(sclass65)
+N_train = floor(0.8*N)
+train_ind = sample.int(N, N_train, replace=FALSE)
+
+sclass65_train = sclass65[train_ind,]
+sclass65_test = sclass65[-train_ind,]
+
+y_train_65 = sclass65_train$price
+X_train_65 = data.frame(mileage = sclass65_train$mileage)
+y_test_65 = sclass65_test$price
+X_test_65 = data.frame(mileage = sclass65_test$mileage)
+
+
+```
+
+## 2: Run K-nearest-neighbors, for many different values of K, starting at K=2 and going as high as you need to. For each value of K, fit the model to the training set and make predictions on your test set.
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+k_grid = unique(round(exp(seq(log(N_train), log(2), length=100))))
+
+
+
+knn_grid_out350 = foreach(k=k_grid, .combine='c') %do% {
+  
+  knn_model = knn.reg(X_train_350, X_test_350, y_train_350, k=k)
+  predout350 = knn_model$pred
+
+  predout350
+}
+knn_grid_out65 = foreach(k=k_grid, .combine='c') %do% {
+  
+  knn_model = knn.reg(X_train_65, X_test_65, y_train_65, k=k)
+  predout65 = knn_model$pred
+  
+  predout65
+}
+
+
+knn350 = data.frame(k = k_grid, pred = knn_grid_out350)
+knn65 = data.frame(k = k_grid, pred = knn_grid_out65)
+
+
+
+```
+## 3:  Calculate the out-of-sample root mean-squared error (RMSE) for each value of K.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+rmse = function(y, ypred) {
+  sqrt(mean((y-ypred)^2))
+}
+
+rmse_grid_out350 = foreach(k = k_grid, .combine='c') %do% {
+
+  knn_model = knn.reg(X_train_350, X_test_350, y_train_350, k = k)
+  rmse(y_test_350, knn_model$pred)
+}
+rmse_grid_out65 = foreach(k = k_grid, .combine='c') %do% {
+  knn_model = knn.reg(X_train_65, X_test_65, y_train_65, k = k)
+  rmse(y_test_65, knn_model$pred)
+}
+
+rmse_grid_out350 = data.frame(K = k_grid, RMSE = rmse_grid_out350)
+rmse_grid_out65 = data.frame(K = k_grid, RMSE = rmse_grid_out65)
+#For each trim, make a plot of RMSE versus K, so that we can see where it bottoms out. 
+#Then for the optimal value of K, show a plot of the fitted model.  (Again, separately for each of the two trim levels.)
+
+#Which trim yields a larger optimal value of K?  Why do you think this is?
+p_out = ggplot(data=rmse_grid_out350) + 
+  geom_path(aes(x=K, y=RMSE, color='testset'), size=1.5) 
+p_out2 = ggplot(data=rmse_grid_out65) + 
+  geom_path(aes(x=K, y=RMSE, color='testset'), size=1.5) 
+ind_best1 = which.min(rmse_grid_out350$RMSE)
+k_best1 = k_grid[ind_best1]
+ind_best2 = which.min(rmse_grid_out65$RMSE)
+k_best2 = k_grid[ind_best2]
+p_out + geom_vline(xintercept=k_best1, color='darkgreen', size=1.5)+ labs(title = "RMSE of trim=350")
+p_out2 + geom_vline(xintercept=k_best2, color='darkgreen', size=1.5)+ labs(title = "RMSE of trim=65 AMG")
+  
+
+
+#KNN at optimal k for trim= 350
+
+knn350_opt = knn.reg(X_train_350, X_test_350, y_train_350, k=k_best1)
+rmse_best350 = rmse(y_test_350, knn350_opt$pred)
+
+sclass350_test$testpred = knn350_opt$pred
+
+opt350 = ggplot(data = sclass350_test, mapping = aes(x=mileage, y=price))
+opt350 + geom_point(data = sclass350_test, mapping = aes(x=mileage, y=price))+
+  geom_line(data = sclass350_test, mapping = aes(x = mileage, y=testpred), color = 'red', size=1.5)+
+  labs(title = "KNN for trim = 350 at optimum K(12). RMSE = 9339.5")
+
+knn65_opt = knn.reg(X_train_65, X_test_65, y_train_65, k=k_best2)
+rmse_best65 = rmse(y_test_65, knn65_opt$pred)
+
+sclass65_test$testpred = knn65_opt$pred
+
+opt65 = ggplot(data = sclass65_test, mapping = aes(x=mileage, y=price))
+opt350 + geom_point(data = sclass65_test, mapping = aes(x=mileage, y=price))+
+  geom_line(data = sclass65_test, mapping = aes(x = mileage, y=testpred), color = 'red', size=1.5)+
+  labs(title = "KNN for trim = 65 AMG at optimum K(10). RMSE = 18632.12")
+
+
+```
+
+Which trim yields a larger optimal value of K?  Why do you think this is?  
+
+The 350 trim set yields a larger k than 65 AMG. This could be due to there being significantly more observations in the 350 category, therefore a larger K in the 65 AMG would decrease the variance and increase RMSE by a larger amount than an increase in K in the 350 category. 
+
+
+
+
