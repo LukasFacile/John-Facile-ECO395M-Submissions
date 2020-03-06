@@ -1,0 +1,346 @@
+---
+title: "Homework 2"
+author: "John Lukas Facile"
+institute: "The University of Texas at Austin"
+date: "3/2/2020"
+output: pdf_document
+   
+  
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(comment = NA)
+```
+
+# Question 1: Saratoga House Prices
+
+## Linear Model
+In order to accurately predict housing prices given a house's unique features, It is important to examine trends in pricing. To this end, I will examine the existing(medium model) and attempt to improve its predictive power and accuracy. The original model is a linear model that takes into account only a few elements from the available dataset. 
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(mosaic)
+library(ggplot2)
+library(mosaic)
+library(FNN)
+library(gamlr) 
+library(foreach)
+library(knitr)
+library(stargazer)
+read.csv
+rmse = function(y, yhat) {
+  sqrt( mean( (y - yhat)^2 ) )
+}
+# Split into training and testing sets
+n = nrow(SaratogaHouses)
+n_train = round(0.8*n)  # round to nearest integer
+n_test = n - n_train
+train_cases = sample.int(n, n_train, replace=FALSE)
+test_cases = setdiff(1:n, train_cases)
+saratoga_train = SaratogaHouses[train_cases,]
+saratoga_test = SaratogaHouses[test_cases,]
+
+
+#Medium Model from notes
+lm_medium = lm(price ~ lotSize + age + livingArea + pctCollege + bedrooms + 
+                 fireplaces + bathrooms + rooms + heating + fuel + centralAir, data=saratoga_train)
+yhat_test1 = predict(lm_medium, saratoga_test)
+#Testing the medium model to find RMSE
+
+rmse(saratoga_test$price, yhat_test1)
+
+```
+This value indicates the RMSE of the initial linear model I will set out to improve on. I believe that I can lower this out of sample error by including more of the house elements included in the data set. Doing so yields an out of sample error of:  
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+
+lm1 = lm(price ~ (.- sewer - waterfront-fireplaces-age - pctCollege - newConstruction), data=saratoga_train)
+yhat_test2 = predict(lm1, saratoga_test)
+rmse(saratoga_test$price, yhat_test2)
+
+
+```
+This new linear model appears to improve on the previous model in terms of out sample error. This new model takes into account all values available except for whether or not there a sewer nearby, how many fireplaces there are
+
+
+
+## Important Factors 
+
+
+In order to determine what factors contribute more significantly to this model performing better in predicting house prices, I tried two methods. The first being examining the prediction error changes when I drop a certain variable. The variables that immediately stood out were land value anf lot size. Due to how slow this method was and my own personal propensity to overlook variables, I tested the variables using a lasso net in order to find out which variables appear to be more important.  
+
+
+``` {r echo = FALSE, message=FALSE, warning=FALSE}
+
+scx = sparse.model.matrix(price ~ ., data=SaratogaHouses)[,-1] # do -1 to drop intercept!
+# here, we could have also just done x = as.matrix(semiconductor[,-1]).
+# but sparse.model.matrix is a good way of doing things if you have factors.
+
+scy = SaratogaHouses$price # pull out `y' too just for convenience
+
+# fit a single lasso
+sclasso = gamlr(scx, scy, family="gaussian")
+plot(sclasso) # the path plot!
+bethat = coef(sclasso)
+
+
+
+kable(bethat[1:5,],caption = "First 5 Important variables" )
+```
+From this table we can see what variables appear to "leap" first from the center line in the graph. One interesting thing about my handbuilt model is that the inclusion of house age increase the out of sample error.    
+## Nonparametric Model
+The best predictive model for housing prices may not be a linear one, or a parametric one for that matter. In order to find an even better model we will examine a KNN model. Utilizing a similar model structure as before, we must first find an optimal value of K.  
+
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+
+
+SaratogaHouses$heatingelectric = eval(SaratogaHouses$heating == "electric")
+SaratogaHouses$heatinghotwatersteam = eval(SaratogaHouses$heating == "hot water/steam")
+SaratogaHouses$heatinghotair = eval(SaratogaHouses$heating == "hot air")
+
+SaratogaHouses$fuelgas = eval(SaratogaHouses$fuel == "gas")
+SaratogaHouses$fuelelectric = eval(SaratogaHouses$fuel == "electric")
+SaratogaHouses$fueloil = eval(SaratogaHouses$fuel == "oil")
+
+SaratogaHouses$centralAiryes = eval(SaratogaHouses$centralAir == "yes")
+SaratogaHouses$centralAirno = eval(SaratogaHouses$centralAir == "no")
+
+saratoga_train = SaratogaHouses[train_cases,]
+saratoga_test = SaratogaHouses[test_cases,]
+
+xtrain = model.matrix(~ .-sewer - waterfront - fireplaces-age - pctCollege- newConstruction  - centralAirno - centralAiryes -1, data=saratoga_train)
+xtest = model.matrix(~ .-sewer - waterfront - fireplaces-age - pctCollege- newConstruction - centralAirno - centralAiryes-1, data=saratoga_test)
+
+
+ytrain = saratoga_train$price
+ytest = saratoga_test$price
+
+scale_train = apply(xtrain, 2, sd) # calculate std dev for each column
+saratoga_train_scaled = scale(xtrain, scale = scale_train)
+saratoga_test_scaled = scale(xtest, scale=scale_train)
+k_grid = seq(2, 51)
+rmse_grid = foreach(K = k_grid, .combine='c') %do% {
+  knn_model_K = knn.reg(saratoga_train_scaled, saratoga_test_scaled, ytrain, k=K)
+  rmse(ytest, knn_model_K$pred)} 
+
+rmse_grid_out = data.frame(K = k_grid, RMSE = rmse_grid)
+
+
+rmse_knn = colMeans(rmse_grid_out)
+k_best =3
+                 
+
+
+plot(k_grid, rmse_grid)
+
+```
+
+For the following KNN model, I will use 3 as the value of K as it minimizes out of sample prediction error.   
+
+I will now test the new model across multiple train-test splits in order to get the average performance of this model. 
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+
+do_train_test_knn <- do(100)* {
+n = nrow(SaratogaHouses)
+n_train = round(0.8*n)  # round to nearest integer
+n_test = n - n_train
+train_cases = sample.int(n, n_train, replace=FALSE)
+test_cases = setdiff(1:n, train_cases)
+saratoga_train = SaratogaHouses[train_cases,]
+saratoga_test = SaratogaHouses[test_cases,]
+saratoga_train = SaratogaHouses[train_cases,]
+saratoga_test = SaratogaHouses[test_cases,]
+
+xtrain = model.matrix(~ .-sewer - waterfront - fireplaces-age - pctCollege- newConstruction - centralAirno - centralAiryes -1, data=saratoga_train)
+xtest = model.matrix(~ .-sewer - waterfront - fireplaces-age - pctCollege- newConstruction - centralAirno - centralAiryes -1, data=saratoga_test)
+
+
+ytrain = saratoga_train$price
+ytest = saratoga_test$price
+
+scale_train = apply(xtrain, 2, sd) # calculate std dev for each column
+saratoga_train_scaled = scale(xtrain, scale = scale_train)
+saratoga_test_scaled = scale(xtest, scale=scale_train)
+
+knn_model_K = knn.reg(saratoga_train_scaled, saratoga_test_scaled, ytrain, k=3)
+rmse(ytest, knn_model_K$pred)
+}
+summary(do_train_test_knn)
+
+
+
+
+
+```
+
+This non parametric model appears to significantly outperform both previous models.  
+In summary, the final model is the most accurate among the three in predicting house prices in Saratoga. 
+
+
+
+
+
+# Question 2: Hospital Audit
+## Conservative Radiologists
+In this audit, I will be examining the performance of radiologists in deciding to recall and ultimately catch wether or not a patient has cancer. The first question I am going to answer is whether or not certain radiologists are more conservative, or more likely to recall a patient controlling for factors such as history, age, etc. 
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+
+brca <- read.csv("brca.csv")
+library(nnet)
+ml1 = multinom(recall ~ radiologist+age +history+ symptoms + menopause+ density, data = brca)
+stargazer(lm1, type = "text", style = "qje")
+
+confusion_matrix_34 = table(cancer = brca$cancer[brca$radiologist == 'radiologist34'],
+                                       recall = brca$recall[brca$radiologist == 'radiologist34'])
+confusion_matrix_34
+confusion_matrix_89 = table(cancer = brca$cancer[brca$radiologist == 'radiologist89'],
+                                       recall = brca$recall[brca$radiologist == 'radiologist89'])
+confusion_matrix_89
+```
+I use a multinomial logit model with the specific intention to examine the changes in probability of recall for each radiologist. Based on the results, I construct confusion matrices to examine the relative differences between certain radiologists. Radiologist 89 recalled significantly more patients than radiologist 34. Thus, holding patient risk factors equal, some radiologists appear to recall patients at higher rate and could be considered more conservative.  
+
+
+## Weighing Factors 
+
+In order to determine wether or not radiologists should be weighing certain risk factors differently, I am going to examine what happens to the impact on accuracy inclusion of different risk factors have on predicting cancer outcomes of patients.  
+
+
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+
+modelA <- glm(cancer ~ recall, data=brca, family = binomial)
+
+stargazer(modelA, type = "text", style = "qje")
+
+modelB <- glm(cancer ~ recall + history, data = brca, family = binomial)
+stargazer(modelB, type = "text", style = "qje")
+#model B doesnt appear to make a significant improvement on model A
+
+bigmodel <- glm(cancer ~ .-radiologist, data= brca, family = binomial)
+stargazer(bigmodel, type = "text", style = "qje")
+```
+According to the data, taking family history into account actually yields worse results than a model where the decision to recall is the only factor. Going further, including all other risk factors also appears to reduce the predictive power of the model. If the radiologist were to appriately take into account these risk factors, the model including all of the risk factors should do improve on the model where the only consideration is patient recall, which is not what this data is showing.  
+
+
+
+# Question 3: Viral Articles
+
+Knowing the secret formula of why articles go viral and how one can consistently use that formula would be exceeding useful for marketing purpose. To this end I will be trying to estimate a model for predicting if an article would go viral. I will be comparing a model that estimates amount of shares and a probabilistic model that predicts wether or not a model exceeds a threshold that qualifies it as "going viral".  
+
+## Part 1: Modeling number of shares
+
+For this first model, I will be estimating a model that predicts the amount of shares that an article would get given certain characteristics. Due to the distribution of number of shares of articles, I will be using the log of shares as my variable of interest.  
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+
+news <- read.csv("online_news.csv")
+
+logshares <- log(news$shares)
+
+
+mutate(news, logshares)
+
+
+viral = ifelse(news$shares >1400, 1, 0)
+mutate(news, viral)
+
+
+newsc<- select(news, -contains("url"))
+
+
+n = nrow(news)
+n_train = round(0.8*n)  # round to nearest integer
+n_test = n - n_train
+train_cases = sample.int(n, n_train, replace=FALSE)
+test_cases = setdiff(1:n, train_cases)
+news_train = news[train_cases,]
+news_test = news[test_cases,]
+news_train = news[train_cases,]
+news_test = news[test_cases,]
+
+y_test_log = log(news_test$shares)
+y_test = news_test$shares
+
+
+newslm1 <- lm(logshares ~ .-viral - shares -url - n_tokens_title, data = news)
+
+
+
+steplm1 = step(newslm1, scope = ~(. - url - viral - shares)^2,direction = "backward",  k=2)
+
+
+
+
+yhat_step = predict(steplm1, news_test)
+
+
+
+rmse(y_test_log, yhat_step)
+
+viral_test = ifelse(yhat_step >log(1400),1,0)
+mean(viral)
+mean(viral_test)
+
+
+```
+
+The model predicted that 76% of the articles went viral while only 49% of the articles went viral.
+
+## Part 2: Predicting if an article is going to go viral 
+
+
+Now lets examine a probablistic model predicting whether or not an article exceeds a "viral" threshold. 
+
+
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+
+glmViral <- glm(viral ~.-viral - shares -url - n_tokens_title, data = news, family = binomial)
+
+
+#viral_step <- step(glmViral, scope = ~(. - url - viral - shares)^2,direction = "backward")
+
+viral_step = glm(viral ~ n_tokens_content + num_hrefs + num_self_hrefs + num_imgs + 
+    average_token_length + num_keywords + data_channel_is_lifestyle + 
+    data_channel_is_entertainment + data_channel_is_bus + data_channel_is_socmed + 
+    data_channel_is_tech + data_channel_is_world + self_reference_min_shares + 
+    self_reference_avg_sharess + weekday_is_monday + weekday_is_tuesday + 
+    weekday_is_wednesday + weekday_is_thursday + weekday_is_friday + 
+    weekday_is_saturday + global_rate_positive_words + global_rate_negative_words + 
+    avg_positive_polarity + min_positive_polarity + avg_negative_polarity + 
+    title_subjectivity + title_sentiment_polarity, data = news, family = binomial)
+
+
+yhat_glm = predict(viral_step, news_test)
+
+
+
+
+confusionLogit= function(y, ypred) { 
+  ifelse (ypred  > .5 & y >.5, "truepos", 
+ ifelse(ypred >.5 & y <=.5 , "falsepos", 
+ ifelse(ypred <=.5 & y > .5, "falseneg",  "trueneg")))
+}
+
+ outcome=confusionLogit(viral, yhat_glm)
+
+ c(count(outcome=="trueneg"),
+    count(outcome=="falseneg"),
+    count(outcome=="falsepos"), 
+    count(outcome=="truepos")
+  )
+
+
+```
+
+The Logit model Appears to produce better results. The last Values printed is the confusion matrix.
+
+
+
+
+
