@@ -236,7 +236,7 @@ Knowing the secret formula of why articles go viral and how one can consistently
 
 For this first model, I will be estimating a model that predicts the amount of shares that an article would get given certain characteristics. Due to the distribution of number of shares of articles, I will be using the log of shares as my variable of interest.  
 
-```{r echo = FALSE, message=FALSE, warning=FALSE}
+```{r echo = FALSE, message=FALSE, warning=FALSE, include = FALSE}
 
 news <- read.csv("online_news.csv")
 
@@ -287,6 +287,13 @@ mean(viral)
 mean(viral_test)
 
 
+```
+
+
+```{r echo = FALSE, message=FALSE, warning=FALSE}
+rmse(y_test_log, yhat_step)
+mean(viral)
+mean(viral_test)
 ```
 
 The model predicted that 76% of the articles went viral while only 49% of the articles went viral.
